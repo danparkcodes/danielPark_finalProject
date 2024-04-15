@@ -1,0 +1,27 @@
+package backend
+
+// Execution environment for management of state and context during expression evaluation
+// Centralize 
+class Runtime() {
+    // Variable and function storage. 
+    // Stores variable/function identifiers and their values as Data objects
+    val symbolTable:MutableMap<String, Data> = mutableMapOf()
+
+    // Manage scopes in program (ie functions with own local scope vs global scope or loops)
+    fun subscope(bindings:Map<String, Data>):Runtime {
+        val parentSymbolTable = this.symbolTable
+        // Create new instance of Runtime with it's own symbolTable (scope)
+        return Runtime().apply { // modify new Runtime with previous and additional symbols
+            symbolTable.putAll(parentSymbolTable) // state of previous Runtime
+            symbolTable.putAll(bindings) // add additional bindings to new Runtime
+        }
+    }
+
+    // Format object state as string. Debugging / logging
+    override fun toString():String =
+        symbolTable.map { 
+            entry -> "${entry.key} = ${entry.value}"
+        }.joinToString("; ")
+}
+
+
