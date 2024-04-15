@@ -1,0 +1,97 @@
+package backend
+
+// All data values go to instances of data
+// Arguments are Kotlin data types converted to string representation data classes
+abstract class Data
+
+object None:Data() {
+    override fun toString() = "None"
+}
+
+object NullData: Data() {
+    override fun toString(): String = "NULL"
+}
+
+class IntData(val value: Int) : Data() {
+    override fun toString(): String = "Int:$value"
+}
+
+class StringData(val value:String): Data() {
+    override fun toString(): String = 
+        if(value.length > 10) {
+            "String:\"${value.substring(0, 10)}...\""
+        } else {
+            "String:\"$value\""
+        }
+}
+
+// Contains list of primitive type Data objects
+class ListData(val value: MutableList<Data>) : Data() {
+    fun append(data: Data) {
+        value.add(data)
+    }
+
+    fun extend(datas: List<Data>) {
+        value.addAll(datas)
+    }
+
+    fun remove(data: Data) {
+        val index = value.indexOfFirst { it.equals(data) }
+        if (index == -1) {
+            throw IllegalArgumentException("Item not found in list")
+        }
+        value.removeAt(index)
+    }
+
+    fun count(data: Data): Int {
+        return value.count { it.equals(data) }
+    }
+
+    fun sort() {
+        value.sortBy { it.toString() } // Customize sorting as necessary
+    }
+
+    override fun toString(): String {
+        // Format each element to remove the type prefix and join them in a list-like string
+        return value.joinToString(separator = ", ", prefix = "[", postfix = "]") {
+            it.toSimpleString()  
+        }
+    }
+
+    private fun Data.toSimpleString(): String {
+        // strips off type prefix and unwanted formatting from the Data object string
+        return when (this) {
+            is IntData -> this.value.toString()  
+            is StringData -> "${this.value}"
+            else -> this.toString().substringAfter(':').trim('"')
+        }
+    }
+}
+
+// Contains set of primitive type Data objects
+class SetData(val value: Set<Data>) : Data() {
+    override fun toString() = "Set(${value.joinToString(", ")})"
+}
+
+// Contains Map of key:value pairs of primitive type Data objects
+// Keys can be any primitive data type
+class DictData(val value: Map<Data, Data>) : Data() {
+    override fun toString() = "Dict(${value.entries.joinToString(", ") { "${it.key} : ${it.value}" }})"
+}
+
+
+class BooleanData(val value:Boolean): Data() {
+    override fun toString() = 
+    "Boolean:${value}"
+}
+
+class FuncData(
+    val name: String,
+    val params: List<String>,
+    val body: Expr
+): Data() {
+    override fun toString()
+    = params.joinToString(", ").let {
+        "$name($it) { ... }"
+    }
+}
