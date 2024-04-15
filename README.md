@@ -13,6 +13,6 @@ The grammar allows for control structures including if-else conditions and for l
 
 This project extends Assignment 3 and utilizes it's provided runtime environment in JupyterLab
 
-To setup, simply copy 'expr', 'data', and 'PL.g4' into their respective directories.
+To setup, simply copy 'expr', 'data', 'worksheet.ipynb' and 'PL.g4' into their respective directories.
 
 Then run command 'make clean build run' from the terminal while inside the root directory of the project.
