@@ -1,0 +1,466 @@
+package backend
+
+// lexeme: sequence of characters (token) recognized by lexer
+
+abstract class Expr {
+    abstract fun eval(runtime: Runtime): Data
+}
+
+object NullExpr: Expr() {
+    override fun eval(runtime:Runtime): Data = NullData
+}
+
+class IntLiteral(val lexeme:String): Expr() {
+    override fun eval(runtime:Runtime): Data
+    = IntData(Integer.parseInt(lexeme))
+}
+
+class StringLiteral(val lexeme:String): Expr() {
+    override fun eval(runtime:Runtime): Data
+    = StringData(lexeme)
+}
+
+class BooleanLiteral(val lexeme:String): Expr() {
+    override fun eval(runtime:Runtime): Data
+    = BooleanData(lexeme.equals("true"))
+}
+
+// Represents List object
+class ListExpr(val elements: List<Expr>) : Expr() {
+    init {
+        // Debugging output upon instantiation of the ListExpr object
+        //println("ListExpr instantiating with ${elements.size} elements.")
+        elements.forEachIndexed { index, expr ->
+            //println("Initial element $index: ${expr.javaClass.simpleName}")
+        }
+    }
+
+    override fun eval(runtime: Runtime): Data {
+        // Debugging output to start list evaluation
+        //println("Starting evaluation of ListExpr with ${elements.size} elements.")
+
+        // Evaluate each expression in the list and collect the results
+        var evaluatedData = elements.mapIndexed { index, expr ->
+            // Debugging output before evaluation of each element
+            //println("Evaluating element $index of type ${expr.javaClass.simpleName}")
+            val result = expr.eval(runtime)
+            // Debugging output for each element's result
+            //println("Element $index evaluated to: ${result}")
+            result
+        }.toMutableList()
+
+        // Create the ListData object with the evaluated results
+        val listData = ListData(evaluatedData)
+
+        // Debugging output to show the final evaluated list
+        //println("Final evaluated ListData: ${listData}")
+
+        // Return the evaluated ListData
+        return listData
+    }
+}
+
+// Given one index or a slice with two indexes, returns either a single value or list of values
+class ListAccessor(val listName: String, val index: String) : Expr() {
+    override fun eval(runtime: Runtime): Data {
+        val listData = runtime.symbolTable[listName] as? ListData
+            ?: throw RuntimeException("No list found with name $listName or the variable is not a list.")
+
+        val parts = index.split(':')
+        if (parts.size == 1) {
+            val idx = parts[0].toIntOrNull() ?: throw RuntimeException("Start index must be an integer, got '$index'.")
+            if (idx < 0 || idx >= listData.value.size) {
+                throw IndexOutOfBoundsException("Index out of range: $idx")
+            }
+            return listData.value[idx]
+        } else if (parts.size == 2) {
+            val startIdx = parts[0].toIntOrNull() ?: throw RuntimeException("Start index must be an integer, got '${parts[0]}'.")
+            val endIdx = parts[1].toIntOrNull() ?: throw RuntimeException("End index must be an integer, got '${parts[1]}'.")
+            if (startIdx > endIdx || startIdx < 0 || endIdx >= listData.value.size) {
+                throw IndexOutOfBoundsException("Slice range out of bounds: $startIdx to $endIdx")
+            }
+            return ListData(ArrayList(listData.value.subList(startIdx, endIdx + 1)))
+        } else {
+            throw IllegalArgumentException("Invalid index format for slicing or indexing.")
+        }
+    }
+}
+
+class ListModify(val listName: String, val index: String, val newValue: Expr) : Expr() {
+    override fun eval(runtime: Runtime): Data {
+        val listData = runtime.symbolTable[listName] as? ListData
+            ?: throw RuntimeException("No list found with name $listName or the variable is not a list.")
+
+        val idx = index.toIntOrNull()
+            ?: throw RuntimeException("Index must be an integer, got '$index'.")
+
+        val valueData = newValue.eval(runtime)
+
+        if (idx < 0 || idx >= listData.value.size) {
+            throw IndexOutOfBoundsException("Index $idx out of bounds for list $listName")
+        }
+
+        if (valueData is Data) {
+            listData.value[idx] = valueData
+        } else {
+            throw IllegalArgumentException("New value for list must be a Data type, got ${valueData::class.simpleName}")
+        }
+
+        return listData
+    }
+}
+
+class ListOperation(val listName: String, val operation: String, val argument: Expr? = null) : Expr() {
+    override fun eval(runtime: Runtime): Data {
+        val listData = runtime.symbolTable[listName] as? ListData
+            ?: throw RuntimeException("No list found with name $listName or the variable is not a list.")
+
+        when (operation) {
+            "append" -> argument?.let { listData.append(it.eval(runtime)) }
+            "extend" -> {
+                val result = argument?.eval(runtime)
+                if (result is ListData) {
+                    listData.extend(result.value)
+                } else {
+                    throw IllegalArgumentException("Argument for extend must evaluate to a ListData.")
+                }
+            }
+            "remove" -> argument?.let { listData.remove(it.eval(runtime)) }
+            "count" -> return IntData(listData.count(argument?.eval(runtime) ?: throw IllegalArgumentException("No argument required for count")))
+            "sort" -> listData.sort()
+            else -> throw IllegalArgumentException("Unsupported operation $operation")
+        }
+
+        return listData
+    }
+}
+
+enum class Operator {
+    Add,
+    Sub,
+    Mul,
+    Div
+}
+
+enum class Comparator {
+    LT,
+    LE,
+    GT,
+    GE,
+    EQ,
+    NE,
+}
+
+
+object ExprUtils {
+    @JvmStatic
+    fun convertToComparator(symbol: String): Comparator {
+        return when (symbol) {
+            "<"  -> Comparator.LT
+            "<=" -> Comparator.LE
+            ">"  -> Comparator.GT
+            ">=" -> Comparator.GE
+            "==" -> Comparator.EQ
+            "!=" -> Comparator.NE
+            else -> throw IllegalArgumentException("Invalid comparison operator: $symbol")
+        }
+    }
+}
+
+class Test(): Expr() {
+    override fun eval(runtime:Runtime):Data {
+        //println("TEST EVAL")
+        val testData:Data = NullData
+        return testData
+    }
+}
+
+class Arithmetics(
+    val op: Operator,
+    val left: Expr,
+    val right: Expr
+): Expr() {
+    override fun eval(runtime: Runtime): Data {
+        val x = left.eval(runtime)
+        val y = right.eval(runtime)
+
+        // Reintroducing and expanding type checks to handle operations appropriately
+        if (x is IntData && y is IntData) { // type check
+            return IntData(
+                when (op) {
+                    Operator.Add -> x.value + y.value
+                    Operator.Sub -> x.value - y.value
+                    Operator.Mul -> x.value * y.value
+                    Operator.Div -> {
+                        if (y.value != 0) {
+                            x.value / y.value
+                        } else {
+                            throw Exception("cannot divide by zero")
+                        }
+                    }
+                }
+            )
+        } else if (x is StringData && y is IntData) {
+            val newString = x.value.trim('"').repeat(y.value)
+            return StringData(newString)
+        } else if (x is IntData && y is StringData) {
+            val newString = y.value.trim('"').repeat(x.value)
+            return StringData(newString)
+        } else {
+            throw Exception("Invalid type for arithmetic operation")
+        }
+    }
+}
+
+
+class Assign(val symbol: String, val expr: Expr) : Expr() {
+    override fun eval(runtime: Runtime): Data {
+        // Debugging output to trace what is being assigned
+        //println("Assigning")
+        
+        // Evaluate the expression first
+        val result = expr.eval(runtime)
+
+        // Debugging output to trace what is being assigned
+        //println("Assigning to '$symbol': ${result.toString()}")
+
+        // Assign the result to the symbol in the symbol table
+        runtime.symbolTable.put(symbol, result)
+
+        // Debugging output to show current state of the symbol table
+        //println("Current Symbol Table: ${runtime.symbolTable.entries.joinToString { "${it.key} = ${it.value}" }}")
+
+        // Return the result of the assignment (the value that was assigned)
+        return result
+    }
+}
+
+class CollectionAssign(val symbol: String, val expr: Expr) : Expr() {
+    override fun eval(runtime: Runtime): Data {
+
+        // Evaluate the expression first
+        val result = expr.eval(runtime)
+        // Assign the result to the symbol in the symbol table
+        runtime.symbolTable.put(symbol, result)
+        return result
+    }
+}
+
+// Return Data of stored symbol
+// If symbol is list, uses index and/or endIndex to return indexed or sliced value
+class Deref(val name: String, val index: String? = null) : Expr() {
+    override fun eval(runtime: Runtime): Data {
+        val data = runtime.symbolTable[name]
+            ?: throw Exception("$name is not assigned.")
+
+        if (index != null) {
+            if (data !is ListData) {
+                throw Exception("Attempted index access on non-list type for $name.")
+            }
+
+            val parts = index.split(':')
+            if (parts.size == 1) {
+                val idx = parts[0].toIntOrNull() ?: throw IllegalArgumentException("Index must be a valid integer, got '$index'.")
+                if (idx < 0 || idx >= data.value.size) {
+                    throw IndexOutOfBoundsException("Index out of range: $idx")
+                }
+                return data.value[idx]
+            } else if (parts.size == 2) {
+                val startIdx = parts[0].toIntOrNull() ?: throw IllegalArgumentException("Start index must be an integer, got '${parts[0]}'.")
+                val endIdx = parts[1].toIntOrNull() ?: throw IllegalArgumentException("End index must be an integer, got '${parts[1]}'.")
+                if (startIdx > endIdx || startIdx < 0 || endIdx >= data.value.size) {
+                    throw IndexOutOfBoundsException("Slice range out of bounds: $startIdx to $endIdx")
+                }
+                return ListData(ArrayList(data.value.subList(startIdx, endIdx + 1)))
+            } else {
+                throw IllegalArgumentException("Invalid index format for slicing or indexing.")
+            }
+        }
+
+        return data
+    }
+}
+
+// List of expressions and statements as Expr objects
+class Block(val exprList: List<Expr>): Expr() {
+    override fun eval(runtime:Runtime): Data {
+        var result:Data = NullData
+        exprList.forEach { // Evaluates all expressions
+            result = it.eval(runtime)
+        }
+        return result // Result of last evaluated expression 
+    }
+}
+
+class Compare(
+    val comparator: Comparator,
+    val left: Expr,
+    val right: Expr
+): Expr() {
+    override fun eval(runtime:Runtime): Data {
+        val x = left.eval(runtime)
+        val y = right.eval(runtime)
+        if(x is IntData && y is IntData) {
+            return BooleanData(
+                when(comparator) {
+                    Comparator.LT -> x.value < y.value
+                    Comparator.LE -> x.value <= y.value
+                    Comparator.GT -> x.value > y.value
+                    Comparator.GE -> x.value >= y.value
+                    Comparator.EQ -> x.value == y.value
+                    Comparator.NE -> x.value != y.value
+                }
+            )
+        } else {
+            throw Exception("Non-integer data in comparison")
+        }
+    }
+}
+
+class Ifelse(
+    val cond:Expr,
+    val trueExpr:Expr,
+    val falseExpr:Expr
+): Expr() {
+    override fun eval(runtime:Runtime): Data {
+        val cond_data = cond.eval(runtime)
+        if(cond_data !is BooleanData) {
+            throw Exception("need boolean data in if-else")
+        }
+        return if(cond_data.value) {
+            return trueExpr.eval(runtime)
+        } else {
+            return falseExpr.eval(runtime)
+        }
+    }
+}
+
+class While(val cond:Expr, val body:Expr): Expr() {
+    override fun eval(runtime:Runtime): Data {
+        var flag = cond.eval(runtime) as BooleanData
+        var result:Data = NullData
+        var iter:Int = 1_000_000
+        while(flag.value) {
+            result = body.eval(runtime)
+            flag = cond.eval(runtime) as BooleanData
+            if(iter == 0) {
+                println("MAX_ITER reached")
+                println(runtime)
+                return NullData
+            }
+            iter --
+        }
+        return result
+    }
+}
+
+
+// ForLoop - Evaluates all statements expressions in body with iterator values between start and end
+// Returns result of last evaluated expression in block for last iteration
+class ForLoop(
+    val iterator: String,
+    val start: String? = null,
+    val end: String? = null,
+    val collectionExpr: Expr? = null,
+    val body: Expr
+): Expr() {
+    override fun eval(runtime: Runtime): Data {
+        var result: Data = NullData
+
+        if (collectionExpr != null) {
+            // Handle collection iteration
+            val collection = collectionExpr.eval(runtime)
+            if (collection !is ListData) {
+                throw IllegalArgumentException("The collection expression must evaluate to a ListData.")
+            }
+            for (item in collection.value) {
+                runtime.symbolTable[iterator] = item
+                result = body.eval(runtime)
+            }
+        } else if (start != null && end != null) {
+            // Handle numeric range
+            val startVal = start.toIntOrNull() ?: throw IllegalArgumentException("Invalid start value for numeric range")
+            val endVal = end.toIntOrNull() ?: throw IllegalArgumentException("Invalid end value for numeric range")
+            for (i in startVal..endVal) {
+                runtime.symbolTable[iterator] = IntData(i)
+                result = body.eval(runtime)
+            }
+        } else {
+            throw IllegalArgumentException("Invalid loop configuration: either a range or a collection expression must be provided.")
+        }
+
+        runtime.symbolTable.remove(iterator)
+        return result
+    }
+}
+
+
+// funDef - function declaration
+class Declare(
+    val name: String,         // function name
+    val params: List<String>, // function parameters
+    val body: Expr            // body expression
+): Expr() {
+    override fun eval(runtime:Runtime):Data
+    = FuncData(name, params, body).also {   // Store function data. Can be invoked later
+        runtime.symbolTable[name] = it      // Store in symbol table to be callable from other parts of program
+    }
+}
+
+// expr - function call
+class Invoke(val name:String, val args:List<Expr>):Expr() {
+    override fun eval(runtime:Runtime):Data {
+       
+        val func:Data? = runtime.symbolTable[name]
+        if(func == null) {
+            throw Exception("$name does not exist")
+        }
+        if(func !is FuncData) {
+            throw Exception("$name is not a function.")
+        }
+        if(func.params.size != args.size) {
+            throw Exception(
+                "$name expects ${func.params.size} arguments "
+                + "but received ${args.size}"
+            )
+        }
+        
+        val r = runtime.subscope(
+            func.params.zip(args.map {it.eval(runtime)}).toMap()
+        )
+        return func.body.eval(r)
+    }
+}
+
+
+class Print(val expression: Expr) : Expr() {
+    override fun eval(runtime: Runtime): Data {
+        val result = expression.eval(runtime)
+        when (result) {
+            is IntData -> println(result.value)  // Print integers 
+            is StringData -> println(result.value.trim('"'))  // Print strings 
+            is ListData -> println(result.toString().trim('"'))  // Print lists 
+            else -> println("Cannot print data type: ${result.javaClass.simpleName}")
+        }
+        return result
+    }
+}
+
+class Concatenate(val left: Expr, val right: Expr) : Expr() {
+    override fun eval(runtime: Runtime): Data {
+        val leftResult = left.eval(runtime)
+        val rightResult = right.eval(runtime)
+
+        // Check if StringData otherwise convert
+        val leftStr = when(leftResult) {
+            is StringData -> leftResult.value.trim('"').trim('"')
+            else -> leftResult.toString().substringAfter(':').trim('"') //If conversion fails
+        }
+        val rightStr = when(rightResult) {
+            is StringData -> rightResult.value.trim('"').trim('"')
+            else -> rightResult.toString().substringAfter(':').trim('"') //If conversion fails
+        }
+        return StringData(leftStr + rightStr)
+    }
+}
+
